@@ -14,23 +14,31 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -89,16 +98,19 @@ fun RecapScreen(
                     },
                     sheetState = sheetState
                 ) {
+                    //Text("Hide bottom sheet")
+                    SettingsPanel(viewModel)
+                    Spacer(modifier = Modifier.height(16.dp))
                     // Sheet content
-                    Button(onClick = {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion {
-                            if (!sheetState.isVisible) {
-                                showBottomSheet = false
-                            }
-                        }
-                    }) {
-                        Text("Hide bottom sheet")
-                    }
+//                    Button(onClick = {
+//                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+//                            if (!sheetState.isVisible) {
+//                                showBottomSheet = false
+//                            }
+//                        }
+//                    }) {
+//
+//                    }
                 }
             }
             Text(
@@ -190,4 +202,117 @@ fun RecapScreen(
         }
 
     }
+}
+
+
+@Composable
+fun ModelButton(
+    modelName: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        //modifier = Modifier.weight(1f),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = modelName,
+            tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(text = modelName)
+    }
+}
+
+@Composable
+fun SettingsPanel(viewModel: GeminiAPIViewModel) {
+    var apiKey by remember { mutableStateOf(viewModel.getAPIKey()) }
+    var showApiKey by remember { mutableStateOf(false) }
+    var selectedModel by remember { mutableStateOf(viewModel.getModelName()) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        viewModel.loadSettings()
+        apiKey = viewModel.getAPIKey()
+        selectedModel = viewModel.getModelName()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // API Key Input
+        OutlinedTextField(
+            value = if (showApiKey) apiKey else "*".repeat(apiKey.length),
+            onValueChange = { apiKey = it },
+            label = { Text("API Key") },
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = {
+                IconButton(onClick = { showApiKey = !showApiKey }) {
+                    Icon(
+                        imageVector = if (showApiKey) Icons.Filled.Info else Icons.Filled.Info,
+                        contentDescription = if (showApiKey) "Hide API Key" else "Show API Key"
+                    )
+                }
+            }
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Choose AI Model
+        Text(text = "Choose AI Model")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceAround
+        ) {
+            ModelButton(
+                modelName = "gemini-1.5-pro",
+                icon = Icons.Filled.Info, // Example icon
+                isSelected = selectedModel == "gemini-1.5-pro",
+                onClick = { selectedModel = "gemini-1.5-pro" }
+            )
+            ModelButton(
+                modelName = "gemini-1.5-flash",
+                icon = Icons.Filled.Info, // Example icon
+                isSelected = selectedModel == "gemini-1.5-flash",
+                onClick = { selectedModel = "gemini-1.5-flash" }
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Save Button
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                viewModel.updateSettings(apiKey, selectedModel)
+                viewModel.saveSettings()
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Settings saved successfully")
+                }
+            }) {
+            Text("Save")
+        }
+    }
+
+    // Snackbar Host
+    SnackbarHost(hostState = snackbarHostState) { data ->
+        Snackbar(
+            snackbarData = data,
+            modifier = Modifier.padding(8.dp)
+        )
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
 }
