@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
+import com.google.ai.client.generativeai.type.generationConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,11 +20,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
-
-
-
 
 class GeminiAPIViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(UiState.Initial)
@@ -34,6 +33,14 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
     companion object {
         private val API_KEY = stringPreferencesKey("api_key")
         private val MODEL_NAME = stringPreferencesKey("model_name")
+    }
+
+    private var apiKey: String = ""
+    private var modelName: String = "gemini-1.5-pro"
+    private lateinit var generativeModel: GenerativeModel
+
+    init {
+        loadSettings()
     }
 
     fun saveSettings() {
@@ -51,34 +58,29 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
                 apiKey = preferences[API_KEY] ?: ""
                 modelName = preferences[MODEL_NAME] ?: "gemini-1.5-pro"
             }.first()
+            initializeGenerativeModel()
         }
     }
 
-    private var apiKey: String = "" // Initially empty
+    fun getAPIKey(): String = apiKey
 
-    fun getAPIKey(): String {
-        return apiKey
-    }
-
-    fun getModelName(): String {
-        return modelName
-    }
+    fun getModelName(): String = modelName
 
     fun updateSettings(newApiKey: String, newModelName: String) {
         apiKey = newApiKey
         modelName = newModelName
-        initializeGenerativeModel() // Re-initialize with the new values
+
+        initializeGenerativeModel()
     }
 
-    private lateinit var generativeModel: GenerativeModel // Do not initialize here
-
-    private var modelName: String = "gemini-1.5-pro"
-
     private fun initializeGenerativeModel() {
-        if (apiKey.isNotBlank()) { // Only initialize if apiKey is not empty
+        if (apiKey.isNotBlank()) {
             generativeModel = GenerativeModel(
                 modelName = modelName,
-                apiKey = apiKey
+                apiKey = apiKey,
+                generationConfig {
+                    responseMimeType = "application/json"
+                }
             )
         }
     }
@@ -98,58 +100,94 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun sendMessage(
-        userInput: String,
-        bitmap: Bitmap?,
-        generateQuiz: Boolean,
-        completion: (String) -> Unit
-    ) {
-        _uiState.value = UiState.Loading
+    userInput: String,
+    bitmap: Bitmap?,
+    generateQuiz: Boolean,
+    completion: (String) -> Unit
+) {
+    _uiState.value = UiState.Loading
 
-        val quizPrompt = if (generateQuiz) {
-            """
-                Use this JSON schema to generate $numberOfQuestions questions:
-                {
-                    "quiz_title": "Sample Quiz",
-                    "questions": [
-                        {
-                            "type": "multiple_choice",
-                            "question": "What is the capital of France?",
-                            "options": [
-                                {"text": "Paris", "correct": true},
-                                {"text": "London",  "correct": false},
-                                {"text": "Berlin", "correct": false},
-                                {"text": "Rome", "correct": false}
-                            ]
-                        },
-                        {
-                            "type": "free_answer",
-                            "question": "What is the meaning of life?",
-                            "answer": ""
-                        }
-                    ]
-                }
-            """.trimIndent()
-        } else {
-            "Please follow the example JSON EXACTLY"
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val response = generativeModel.generateContent(
-                    content {
-                        text(userInput)
-                        bitmap?.let { image(it) }
+    val quizPrompt = if (generateQuiz) {
+        """
+            Use this JSON schema to generate $numberOfQuestions questions:
+            {
+                "quiz_title": "Sample Quiz",
+                "questions": [
+                    {
+                        "type": "multiple_choice",
+                        "question": "What is the capital of France?",
+                        "options": [
+                            {"text": "Paris", "correct": true},
+                            {"text": "London",  "correct": false},
+                            {"text": "Berlin", "correct": false},
+                            {"text": "Rome", "correct": false}
+                        ]
+                    },
+                    {
+                        "type": "free_answer",
+                        "question": "What is the meaning of life?",
+                        "answer": ""
                     }
-                )
-
-                response.text?.let { outputContent ->
-                    _uiState.value = UiState.Success(outputContent)
-                    completion(outputContent)
-                }
-            } catch (e: Exception) {
-                _uiState.value = UiState.Error(e.localizedMessage ?: "")
-                completion("Error: ${e.localizedMessage}")
+                ]
             }
+        """.trimIndent()
+    } else {
+        "Please follow the example JSON EXACTLY"
+    }
+
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            val response = generativeModel.generateContent(
+                content {
+                    text("$userInput\n$quizPrompt")
+                    bitmap?.let { image(it) }
+                }
+            )
+
+            response.text?.let { outputContent ->
+                _uiState.value = UiState.Success(outputContent)
+                completion(outputContent)
+            }
+        } catch (e: Exception) {
+            _uiState.value = UiState.Error(e.localizedMessage ?: "")
+            completion("Error: ${e.localizedMessage}")
         }
     }
 }
+}
+
+@Serializable
+data class Explanation(
+    val question: String,
+    val choices: List<Choice>
+) {
+    @Serializable
+    data class Choice(
+        val answer_option: String,
+        val correct: Boolean,
+        val explanation: String
+    )
+}
+
+@Serializable
+data class Quiz(
+    val quiz_title: String,
+    val questions: List<Question>,
+    val userPrompt: String? = null,
+    val userLinks: List<String>? = null,
+    val userPhotos: List<ByteArray>? = null
+)
+
+@Serializable
+data class Option(
+    val text: String,
+    val correct: Boolean
+)
+
+@Serializable
+data class Question(
+    val type: String,
+    val question: String,
+    val options: List<Option>? = null,
+    val answer: String? = null
+)

@@ -1,6 +1,7 @@
 package com.click.recapai
 
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,12 +63,15 @@ import kotlinx.coroutines.launch
 fun RecapScreen(
     viewModel: GeminiAPIViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     var showBottomSheet by remember { mutableStateOf(false) }
     var textInput by remember { mutableStateOf(TextFieldValue("")) }
     var urlList by remember { mutableStateOf(mutableListOf<String>()) }
     var imageUris by remember { mutableStateOf(mutableListOf<Uri>()) }
+    var showAlertDialog by remember { mutableStateOf(false) }
+    var responseText by remember { mutableStateOf("") }
     val imageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris != null) {
             imageUris = uris.take(5).toMutableList() // Limit to 5 images
@@ -76,43 +82,37 @@ fun RecapScreen(
         topBar = {
             TopAppBar(
                 title = { Text(text = "Recap AI") },
-                // ... other parameters
                 actions = {
-                    // ... other actions
-
-                    IconButton(onClick = { /* Handle settings click */
-                        showBottomSheet = true
-                    }) {
+                    IconButton(onClick = { showBottomSheet = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
             )
-
         }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
             if (showBottomSheet) {
                 ModalBottomSheet(
-                    onDismissRequest = {
-                        showBottomSheet = false
-                    },
+                    onDismissRequest = { showBottomSheet = false },
                     sheetState = sheetState
                 ) {
-                    //Text("Hide bottom sheet")
                     SettingsPanel(viewModel)
                     Spacer(modifier = Modifier.height(16.dp))
-                    // Sheet content
-//                    Button(onClick = {
-//                        scope.launch { sheetState.hide() }.invokeOnCompletion {
-//                            if (!sheetState.isVisible) {
-//                                showBottomSheet = false
-//                            }
-//                        }
-//                    }) {
-//
-//                    }
                 }
             }
+
+            if (showAlertDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAlertDialog = false },
+                    confirmButton = {
+                        Button(onClick = { showAlertDialog = false }) {
+                            Text("OK")
+                        }
+                    },
+                    text = { Text(responseText) }
+                )
+            }
+
             Text(
                 text = "Upload Images (up to 5)",
                 style = MaterialTheme.typography.titleLarge,
@@ -189,21 +189,31 @@ fun RecapScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Placeholder for a send button to be implemented later
             Button(
-                onClick = {
-                    /* Implement send logic here */
-
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "Send", fontSize = 18.sp)
-            }
+    onClick = {
+        viewModel.sendMessage(
+            userInput = textInput.text,
+//            selectedPhotosData = imageUris.map { uri ->
+//                val inputStream = context.contentResolver.openInputStream(uri)
+//                inputStream?.readBytes() ?: ByteArray(0)
+//            },
+//            streamContent = true,
+            bitmap = null,
+            generateQuiz = true
+        ) { response ->
+            // Log the response to check its value
+            Log.d("RecapScreen", "Response: $response")
+            responseText = response ?: "No response received"
+            showAlertDialog = true
         }
-
+    },
+    modifier = Modifier.fillMaxWidth()
+) {
+    Text(text = "Send", fontSize = 18.sp)
+}
+        }
     }
 }
-
 
 @Composable
 fun ModelButton(
@@ -214,7 +224,6 @@ fun ModelButton(
 ) {
     Button(
         onClick = onClick,
-        //modifier = Modifier.weight(1f),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
         )
@@ -254,7 +263,6 @@ fun SettingsPanel(viewModel: GeminiAPIViewModel) {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // API Key Input
         OutlinedTextField(
             value = if (showApiKey) apiKey else "*".repeat(apiKey.length),
             onValueChange = { apiKey = it },
@@ -271,7 +279,6 @@ fun SettingsPanel(viewModel: GeminiAPIViewModel) {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Choose AI Model
         Text(text = "Choose AI Model")
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -279,20 +286,19 @@ fun SettingsPanel(viewModel: GeminiAPIViewModel) {
         ) {
             ModelButton(
                 modelName = "gemini-1.5-pro",
-                icon = Icons.Filled.Info, // Example icon
+                icon = Icons.Filled.Info,
                 isSelected = selectedModel == "gemini-1.5-pro",
                 onClick = { selectedModel = "gemini-1.5-pro" }
             )
             ModelButton(
                 modelName = "gemini-1.5-flash",
-                icon = Icons.Filled.Info, // Example icon
+                icon = Icons.Filled.Info,
                 isSelected = selectedModel == "gemini-1.5-flash",
                 onClick = { selectedModel = "gemini-1.5-flash" }
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Save Button
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
@@ -306,7 +312,6 @@ fun SettingsPanel(viewModel: GeminiAPIViewModel) {
         }
     }
 
-    // Snackbar Host
     SnackbarHost(hostState = snackbarHostState) { data ->
         Snackbar(
             snackbarData = data,
