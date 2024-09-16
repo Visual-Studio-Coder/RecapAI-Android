@@ -2,7 +2,8 @@ package com.click.recapai
 
 import android.app.Application
 import android.content.Context
-import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -100,15 +101,16 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun sendMessage(
-    userInput: String,
-    bitmap: Bitmap?,
-    generateQuiz: Boolean,
-    completion: (String) -> Unit
-) {
-    _uiState.value = UiState.Loading
+        userInput: String,
+        imageUris: List<Uri>?,
+        context: Context,
+        generateQuiz: Boolean,
+        completion: (String) -> Unit
+    ) {
+        _uiState.value = UiState.Loading
 
-    val quizPrompt = if (generateQuiz) {
-        """
+        val quizPrompt = if (generateQuiz) {
+            """
             Use this JSON schema to generate $numberOfQuestions questions:
             {
                 "quiz_title": "Sample Quiz",
@@ -131,29 +133,33 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
                 ]
             }
         """.trimIndent()
-    } else {
-        "Please follow the example JSON EXACTLY"
-    }
+        } else {
+            "Please follow the example JSON EXACTLY"
+        }
 
-    viewModelScope.launch(Dispatchers.IO) {
-        try {
-            val response = generativeModel.generateContent(
-                content {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val contentBlock = content {
                     text("$userInput\n$quizPrompt")
-                    bitmap?.let { image(it) }
+                    imageUris?.forEach { uri ->
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        image(bitmap)
+                    }
                 }
-            )
 
-            response.text?.let { outputContent ->
-                _uiState.value = UiState.Success(outputContent)
-                completion(outputContent)
+                val response = generativeModel.generateContent(contentBlock)
+
+                response.text?.let { outputContent ->
+                    _uiState.value = UiState.Success(outputContent)
+                    completion(outputContent)
+                }
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error(e.localizedMessage ?: "")
+                completion("Error: ${e.localizedMessage}")
             }
-        } catch (e: Exception) {
-            _uiState.value = UiState.Error(e.localizedMessage ?: "")
-            completion("Error: ${e.localizedMessage}")
         }
     }
-}
 }
 
 @Serializable

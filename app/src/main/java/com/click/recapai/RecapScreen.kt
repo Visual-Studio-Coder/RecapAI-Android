@@ -193,12 +193,8 @@ fun RecapScreen(
     onClick = {
         viewModel.sendMessage(
             userInput = textInput.text,
-//            selectedPhotosData = imageUris.map { uri ->
-//                val inputStream = context.contentResolver.openInputStream(uri)
-//                inputStream?.readBytes() ?: ByteArray(0)
-//            },
-//            streamContent = true,
-            bitmap = null,
+            imageUris = imageUris,
+            context = context,
             generateQuiz = true
         ) { response ->
             // Log the response to check its value
