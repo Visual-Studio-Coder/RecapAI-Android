@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.ai.client.generativeai.Chat
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
@@ -22,6 +23,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -39,6 +42,7 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
     private var apiKey: String = ""
     private var modelName: String = "gemini-1.5-pro"
     private lateinit var generativeModel: GenerativeModel
+    private var chat: Chat? = null
 
     init {
         loadSettings()
@@ -83,6 +87,7 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
                     responseMimeType = "application/json"
                 }
             )
+            chat = generativeModel.startChat()
         }
     }
 
@@ -97,7 +102,7 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun clearChat() {
-        // Implement clear history functionality if required
+        chat = generativeModel.startChat()
     }
 
     fun sendMessage(
@@ -148,9 +153,9 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
 
-                val response = generativeModel.generateContent(contentBlock)
+                val response = chat?.sendMessage(contentBlock)
 
-                response.text?.let { outputContent ->
+                response?.text?.let { outputContent ->
                     _uiState.value = UiState.Success(outputContent)
                     completion(outputContent)
                 }
@@ -197,3 +202,7 @@ data class Question(
     val options: List<Option>? = null,
     val answer: String? = null
 )
+
+fun parseQuizJson(jsonString: String): Quiz {
+    return Json.decodeFromString(jsonString)
+}

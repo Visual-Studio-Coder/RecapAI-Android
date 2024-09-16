@@ -190,23 +190,23 @@ fun RecapScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
-    onClick = {
-        viewModel.sendMessage(
-            userInput = textInput.text,
-            imageUris = imageUris,
-            context = context,
-            generateQuiz = true
-        ) { response ->
-            // Log the response to check its value
-            Log.d("RecapScreen", "Response: $response")
-            responseText = response ?: "No response received"
-            showAlertDialog = true
-        }
-    },
-    modifier = Modifier.fillMaxWidth()
-) {
-    Text(text = "Send", fontSize = 18.sp)
-}
+                onClick = {
+                    viewModel.sendMessage(
+                        userInput = textInput.text,
+                        imageUris = imageUris,
+                        context = context,
+                        generateQuiz = true
+                    ) { response ->
+                        // Log the response to check its value
+                        Log.d("RecapScreen", "Response: $response")
+                        responseText = response ?: "No response received"
+                        showAlertDialog = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Send", fontSize = 18.sp)
+            }
         }
     }
 }
