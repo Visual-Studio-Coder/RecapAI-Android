@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -22,9 +23,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.decodeFromString
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -59,10 +60,14 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun loadSettings() {
         viewModelScope.launch {
-            val settings = dataStore.data.map { preferences ->
-                apiKey = preferences[API_KEY] ?: ""
-                modelName = preferences[MODEL_NAME] ?: "gemini-1.5-pro"
-            }.first()
+            val settings =
+                    dataStore
+                            .data
+                            .map { preferences ->
+                                apiKey = preferences[API_KEY] ?: ""
+                                modelName = preferences[MODEL_NAME] ?: "gemini-1.5-pro"
+                            }
+                            .first()
             initializeGenerativeModel()
         }
     }
@@ -80,13 +85,12 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun initializeGenerativeModel() {
         if (apiKey.isNotBlank()) {
-            generativeModel = GenerativeModel(
-                modelName = modelName,
-                apiKey = apiKey,
-                generationConfig {
-                    responseMimeType = "application/json"
-                }
-            )
+            generativeModel =
+                    GenerativeModel(
+                            modelName = modelName,
+                            apiKey = apiKey,
+                            generationConfig { responseMimeType = "application/json" }
+                    )
             chat = generativeModel.startChat()
         }
     }
@@ -112,97 +116,85 @@ class GeminiAPIViewModel(application: Application) : AndroidViewModel(applicatio
         generateQuiz: Boolean,
         completion: (String) -> Unit
     ) {
-        _uiState.value = UiState.Loading
-
-        val quizPrompt = if (generateQuiz) {
-            """
-            Use this JSON schema to generate $numberOfQuestions questions:
-            {
-                "quiz_title": "Sample Quiz",
-                "questions": [
-                    {
-                        "type": "multiple_choice",
-                        "question": "What is the capital of France?",
-                        "options": [
-                            {"text": "Paris", "correct": true},
-                            {"text": "London",  "correct": false},
-                            {"text": "Berlin", "correct": false},
-                            {"text": "Rome", "correct": false}
-                        ]
-                    },
-                    {
-                        "type": "free_answer",
-                        "question": "What is the meaning of life?",
-                        "answer": ""
-                    }
-                ]
-            }
-        """.trimIndent()
-        } else {
-            "Please follow the example JSON EXACTLY"
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
+        Log.d("GeminiAPIViewModel", "sendMessage called with input: $userInput")
+        viewModelScope.launch {
             try {
-                val contentBlock = content {
-                    text("$userInput\n$quizPrompt")
-                    imageUris?.forEach { uri ->
-                        val inputStream = context.contentResolver.openInputStream(uri)
-                        val bitmap = BitmapFactory.decodeStream(inputStream)
-                        image(bitmap)
+                val response = withContext(Dispatchers.IO) {
+                    val quizPrompt = if (generateQuiz) {
+                        """
+                        Use this JSON schema to generate $numberOfQuestions questions:
+                        {
+                            "quiz_title": "Sample Quiz",
+                            "questions": [
+                                {
+                                    "type": "multiple_choice",
+                                    "question": "What is the capital of France?",
+                                    "options": [
+                                        {"text": "Paris", "correct": true},
+                                        {"text": "London",  "correct": false},
+                                        {"text": "Berlin", "correct": false},
+                                        {"text": "Rome", "correct": false}
+                                    ]
+                                },
+                                {
+                                    "type": "free_answer",
+                                    "question": "What is the meaning of life?",
+                                    "answer": ""
+                                }
+                            ]
+                        }
+                        """.trimIndent()
+                    } else {
+                        "Please follow the example JSON EXACTLY"
                     }
-                }
 
-                val response = chat?.sendMessage(contentBlock)
-
-                response?.text?.let { outputContent ->
-                    _uiState.value = UiState.Success(outputContent)
-                    completion(outputContent)
+                    val contentBlock = content {
+                        text("$userInput\n$quizPrompt")
+                        imageUris?.forEach { uri ->
+                            val inputStream = context.contentResolver.openInputStream(uri)
+                            val bitmap = BitmapFactory.decodeStream(inputStream)
+                            image(bitmap)
+                        }
+                    }
+                    chat?.sendMessage(contentBlock)?.text ?: "Error: No response"
                 }
+                Log.d("GeminiAPIViewModel", "Response received: $response")
+                completion(response)
             } catch (e: Exception) {
-                _uiState.value = UiState.Error(e.localizedMessage ?: "")
-                completion("Error: ${e.localizedMessage}")
+                Log.e("GeminiAPIViewModel", "Error sending message: ${e.message}")
+                completion("Error: ${e.message}")
             }
         }
     }
 }
 
 @Serializable
-data class Explanation(
-    val question: String,
-    val choices: List<Choice>
-) {
+data class Explanation(val question: String, val choices: List<Choice>) {
     @Serializable
-    data class Choice(
-        val answer_option: String,
-        val correct: Boolean,
-        val explanation: String
-    )
+    data class Choice(val answer_option: String, val correct: Boolean, val explanation: String)
 }
 
-@Serializable
-data class Quiz(
-    val quiz_title: String,
-    val questions: List<Question>,
-    val userPrompt: String? = null,
-    val userLinks: List<String>? = null,
-    val userPhotos: List<ByteArray>? = null
-)
+// import kotlinx.serialization.Serializable
+
+@Serializable data class Quiz(val quiz_title: String, val questions: List<Question>)
 
 @Serializable
-data class Option(
-    val text: String,
-    val correct: Boolean
-)
+data class GradingResult(val expectedAnswer: String, val isCorrect: Boolean, val feedback: String)
 
 @Serializable
 data class Question(
-    val type: String,
-    val question: String,
-    val options: List<Option>? = null,
-    val answer: String? = null
+        val type: String,
+        val question: String,
+        val options: List<Option>? = null,
+        val answer: String? = null
 )
 
+@Serializable data class Option(val text: String, val correct: Boolean)
+
 fun parseQuizJson(jsonString: String): Quiz {
+    return Json.decodeFromString(jsonString)
+}
+
+fun parseGradingResultJson(jsonString: String): GradingResult {
     return Json.decodeFromString(jsonString)
 }
